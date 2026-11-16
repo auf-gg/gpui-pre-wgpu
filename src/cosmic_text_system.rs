@@ -335,6 +335,33 @@ impl CosmicTextSystemState {
         Ok(())
     }
 
+    /// crabber patch: the colour emoji font joins every fallback chain. cosmic-text's own fallback
+    /// reaches monochrome symbol fonts (DejaVu Sans, Noto Sans Symbols) before it, and gpui drops the
+    /// app's fallbacks when the requested family is missing (".SystemUIFont" -> IBM Plex Sans).
+    fn with_emoji_fallback(
+        &mut self,
+        name: &str,
+        features: &FontFeatures,
+        chain: Arc<[(FontId, SharedString)]>,
+    ) -> Result<Arc<[(FontId, SharedString)]>> {
+        if name == EMOJI || chain.iter().any(|(_, family)| family.as_ref() == EMOJI) {
+            return Ok(chain);
+        }
+        let key = FontKey::new(SharedString::from(EMOJI), features.clone(), None);
+        let ids = match self.font_ids_by_family_cache.get(&key) {
+            Some(ids) => ids.clone(),
+            None => {
+                let ids = self.load_family(EMOJI, features, None)?;
+                self.font_ids_by_family_cache.insert(key, ids.clone());
+                ids
+            }
+        };
+        let Some(&id) = ids.first() else { return Ok(chain) };
+        let mut chain = chain.to_vec();
+        chain.push((id, SharedString::from(EMOJI)));
+        Ok(Arc::from(chain))
+    }
+
     #[profiling::function]
     fn load_family(
         &mut self,
@@ -382,6 +409,7 @@ impl CosmicTextSystemState {
             }
             _ => Arc::from(Vec::new()),
         };
+        let user_fallback_chain = self.with_emoji_fallback(name, features, user_fallback_chain)?;
 
         let name = gpui::font_name_with_fallbacks(name, &self.system_font_fallback);
 
@@ -428,6 +456,8 @@ impl CosmicTextSystemState {
             // glyph.
             if font.as_swash().charmap().map('m') == 0
                 && !allowed_bad_font_names.contains(&postscript_name.as_str())
+                // crabber patch: the colour emoji font is used as a fallback (and for emoji runs).
+                && !check_is_known_emoji_font(&postscript_name)
             {
                 continue;
             };
@@ -1078,7 +1108,8 @@ fn compute_run_spans(
     for (grapheme_idx, grapheme) in run_text.grapheme_indices(true) {
         let abs = run_offset + grapheme_idx;
         let ch = grapheme.chars().next().unwrap_or('\0');
-        let next_slot = pick_covering_slot(ch, span_slot, primary, fallback_chain, covers);
+        let next_slot = emoji_slot(grapheme, ch, fallback_chain, covers)
+            .or_else(|| pick_covering_slot(ch, span_slot, primary, fallback_chain, covers));
         if next_slot == span_slot {
             continue;
         }
@@ -1197,6 +1228,18 @@ fn face_info_into_properties(
             cosmic_text::Stretch::UltraExpanded => font_kit::properties::Stretch::ULTRA_EXPANDED,
         },
     }
+}
+
+/// crabber patch: the colour emoji font added to every fallback chain.
+const EMOJI: &str = "Noto Color Emoji";
+
+/// crabber patch: U+FE0F asks for the emoji form (❤️, ©️, 1️⃣), so the grapheme goes to the colour
+/// emoji font even where the primary font has a plain glyph for its first character.
+fn emoji_slot(grapheme: &str, ch: char, fallback_chain: &[(FontId, SharedString)], covers: &impl Fn(FontId, char) -> bool) -> Option<usize> {
+    if !grapheme.contains(['\u{FE0F}', '\u{20E3}']) {
+        return None;
+    }
+    fallback_chain.iter().position(|(id, family)| family.as_ref() == EMOJI && covers(*id, ch))
 }
 
 fn check_is_known_emoji_font(postscript_name: &str) -> bool {
