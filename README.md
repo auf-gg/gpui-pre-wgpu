@@ -1,9 +1,9 @@
 # gpui-pre-wgpu (crabber)
 
-[`gpui-pre-wgpu`](https://crates.io/crates/gpui-pre-wgpu) 0.3.11 from crates.io, the published
+[`gpui-pre-wgpu`](https://crates.io/crates/gpui-pre-wgpu) 0.3.12 from crates.io, the published
 snapshot of Zed's `gpui_wgpu` crate, with one patch for
-[crabber](https://github.com/auf-gg/crabber). The first commit is the crate as published; the
-patch is on top of it. crabber wires it in through `[patch.crates-io]`.
+[crabber](https://github.com/auf-gg/crabber). Each release is imported as published, with the
+patch kept on top. crabber wires it in through `[patch.crates-io]`.
 
 ## Colour emoji on Linux (`src/cosmic_text_system.rs`)
 
